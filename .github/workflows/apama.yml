@@ -1,0 +1,105 @@
+# This workflow installs Apama Community Edition and uses it to run PySys tests for your application
+
+# Using this workflow implies that you have agreed to the terms of the Software AG license agreement - see http://www.apamacommunity.com/terms-conditions/
+
+name: PySys
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    env:
+      # Keep this updated with the latest version from http://www.apamacommunity.com/downloads/
+      WORKFLOW_APAMA_VERSION: 10.5.3.3
+
+    strategy:
+      # Disable fail fast since it's useful to see test results for all platforms even if some failed
+      fail-fast: false
+      
+      matrix:
+        include:
+          - run-id: amd64_linux
+            os: ubuntu-latest
+            
+          #- run-id: amd64_win
+          #  os: windows-latest
+            
+    runs-on: ${{matrix.os}}
+    
+    steps:
+      # Install the Apama Community Edition. This contains 
+      - run: echo "::set-env name=APAMA_INSTALLER_PATH::$HOME/apama-installer"
+      - name: Get Apama installer from cache
+        uses: actions/cache@v2
+        with:
+            path: ${{ env.APAMA_INSTALLER_PATH }}/apama.zip
+            key: apamainstaller-${{ matrix.run-id }}-${{ env.WORKFLOW_APAMA_VERSION }}-zipv2
+
+      - name: Download and install Apama
+        shell: bash
+        run: |
+          if [[ ! -f ${APAMA_INSTALLER_PATH}/apama.zip ]]; then
+            echo Downloading Apama community edition - not yet in the local cache
+            mkdir --parents ${APAMA_INSTALLER_PATH}
+            wget --no-verbose -O ${APAMA_INSTALLER_PATH}/apama.zip https://downloads.apamacommunity.com/apama/${WORKFLOW_APAMA_VERSION}/apama_${WORKFLOW_APAMA_VERSION}_${{ matrix.run-id }}.zip
+          fi
+
+          # We cache the zip not the unzipped dir, since caching the unpacked dir is currently slower than unpacking it each time
+          pushd ${APAMA_INSTALLER_PATH}
+          unzip -q apama.zip
+          mv apama_*/* ./
+          popd
+          
+          cat > $HOME/apama-installer-script.txt << EOF
+          LicenseAgree=Accept
+          InstallProducts=e2ei/11/.latest/Apama/PAMServer
+          PAM.Work.Directory.ID=__VERSION1__,$HOME/apama-work
+          InstallDir=$HOME/softwareag
+          sagInstallerLogFile=$HOME/softwareag-installer.log
+          imageFile=$APAMA_INSTALLER_PATH/data/SAGImage.zip
+          EOF
+          
+          ${APAMA_INSTALLER_PATH}/install -readScript $HOME/apama-installer-script.txt
+		  
+		  # Once installed, copy the most 
+		  . $APAMA_HOME/bin/apama_env
+          echo "APAMA_HOME=$APAMA_HOME" >> $GITHUB_ENV
+          echo "$PATH" >> $GITHUB_PATH
+          echo "$LD_LIBRARY_PATH" >> $GITHUB_PATH
+
+      - uses: actions/checkout@v2
+
+      - name: PySys tests
+        working-directory: test
+        shell: bash
+        id: pysys
+        run: |
+		  env
+          . $APAMA_HOME/bin/apama_env
+          # TODO: add ci option once we're on 10.7
+          pysys.py run --outdir=`pwd`/__pysys_output/${{matrix.run-id}} --purge -Xeplcoverage
+
+      # If any tests fail, PySys will return an error code, so we need "if: always()" so the following steps will run
+      # Since we expect failures only from the cookbook sample, that's the one we upload artifacts for (using id=pysys)
+      # The follow lines are a copy from the sample pysys workflow
+
+      #- name: Upload performance CSV artifacts
+      #  uses: actions/upload-artifact@v2
+      #  # Only do this if some performance results were generated
+      #  if: always() && steps.pysys.outputs.artifact_CSVPerformanceReport
+      #
+      #  with:
+      #    name: pysys_performance_${{matrix.test-run-id}}
+      #    path: ${{ steps.pysys.outputs.artifact_CSVPerformanceReport }}
+
+      - name: Upload archive artifacts for any test failures
+        uses: actions/upload-artifact@v2
+        if: failure()
+
+        with:
+          name: pysys_output_${{matrix.test-run-id}}
+          path: test/__pysys_output/${{matrix.run-id}}
