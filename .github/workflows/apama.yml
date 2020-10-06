@@ -64,9 +64,9 @@ jobs:
           EOF
           
           ${APAMA_INSTALLER_PATH}/install -readScript $HOME/apama-installer-script.txt
-		  
-		  # Once installed, copy the most 
-		  . $APAMA_HOME/bin/apama_env
+          
+          # Once installed, copy the most important env vars into the workflow env for later steps
+          . $APAMA_HOME/bin/apama_env
           echo "APAMA_HOME=$APAMA_HOME" >> $GITHUB_ENV
           echo "$PATH" >> $GITHUB_PATH
           echo "$LD_LIBRARY_PATH" >> $GITHUB_PATH
@@ -78,7 +78,7 @@ jobs:
         shell: bash
         id: pysys
         run: |
-		  env
+          env
           . $APAMA_HOME/bin/apama_env
           # TODO: add ci option once we're on 10.7
           pysys.py run --outdir=`pwd`/__pysys_output/${{matrix.run-id}} --purge -Xeplcoverage
