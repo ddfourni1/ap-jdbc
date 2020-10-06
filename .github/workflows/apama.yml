@@ -37,7 +37,7 @@ jobs:
         uses: actions/cache@v2
         with:
             path: ${{ env.APAMA_INSTALLER_PATH }}/apama.zip
-            key: apamainstaller-${{ matrix.run-id }}-${{ env.WORKFLOW_APAMA_VERSION }}-zipv2
+            key: apamainstaller-${{ matrix.run-id }}-${{ env.WORKFLOW_APAMA_VERSION }}-zip
 
       - name: Download and install Apama
         shell: bash
