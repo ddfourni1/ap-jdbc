@@ -106,8 +106,8 @@ jobs:
         shell: bash
         run: |
           . $APAMA_HOME/bin/apama_env
-          apamadoc __build\apamadoc eventdefinitions
-      - name: Upload to gh-pages
+          apamadoc __build/apamadoc eventdefinitions
+      - name: Upload apamadoc to gh-pages
         #if: github.event_name == 'release'
         uses: JamesIves/github-pages-deploy-action@3.5.9
         with:
