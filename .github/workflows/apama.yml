@@ -107,5 +107,5 @@ jobs:
         if: failure()
 
         with:
-          name: pysys_output_${{matrix.test-run-id}}
+          name: pysys_output_${{matrix.run-id}}
           path: test/__pysys_output/${{matrix.run-id}}
