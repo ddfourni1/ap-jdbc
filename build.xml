@@ -6,7 +6,7 @@
 
 	<property environment="env"/>
 	<property name="APAMA_HOME" location="${env.APAMA_HOME}"/>
-	<fail unless="env.APAMA_HOME" message="Please run the bin/apama_env script before attempting to build this sample."/>
+	<fail unless="env.APAMA_HOME" message="Please source the bin/apama_env script before attempting to build this sample."/>
 
 	<property name="apama-home-jar-dir" location="${env.APAMA_HOME}/lib"/>
 	<property name="common-lib-dir" location="${env.APAMA_HOME}/../common/lib/ext"/>
@@ -24,7 +24,6 @@
 		</fileset>
 	</path>
 
-	<!-- Setup the build directory, our .class files will go here -->
 	<target name="setup">
 		<mkdir dir="${output-dir}"/>
 		<mkdir dir="${build-dir}/classes"/>
@@ -35,7 +34,6 @@
 		-->
 	</target>
 
-	<!-- Compiles .class files -->
 	<target name="compile" depends="setup">
 		<javac srcdir="./src/" destdir="${build-dir}/classes" debug="true">
 			<compilerarg value="-Xlint"/>
@@ -44,7 +42,6 @@
 		</javac>
 	</target>
 	
-	<!-- Make the jar -->
 	<target name="jars" depends="compile">
 		<jar jarfile="${output-dir}/connectivity-jdbc.jar">
 			<manifest>
@@ -56,7 +53,6 @@
 		</jar>
 	</target>
 
-	<!-- Erase everything we built -->
 	<target name="clean">
 		<delete dir="${output-dir}"/>
 	</target>

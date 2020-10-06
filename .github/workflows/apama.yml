@@ -102,6 +102,21 @@ jobs:
       #    name: pysys_performance_${{matrix.test-run-id}}
       #    path: ${{ steps.pysys.outputs.artifact_CSVPerformanceReport }}
 
+      - name: Build apamadoc
+        shell: bash
+        run: |
+          . $APAMA_HOME/bin/apama_env
+          apamadoc __build\apamadoc eventdefinitions
+      - name: Upload to gh-pages
+        #if: github.event_name == 'release'
+        uses: JamesIves/github-pages-deploy-action@3.5.9
+        with:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: gh-pages
+          FOLDER: __build/apamadoc
+
+      # TODO: could also upload epl code coverage (in 10.7.1 this will be automatic) 
+	  
       - name: Upload archive artifacts for any test failures
         uses: actions/upload-artifact@v2
         if: failure()

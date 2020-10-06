@@ -3,8 +3,12 @@
 # ap-jdbc
 Apama 2020Oct Innovation Week project to replace ADBC with a JDBC connectivity plugin
 
-This is a private project and not licensed for any use outside of Software AG.
 
 Supported features:
 
 	- TODO
+
+# License
+Copyright (c) 2020 Software AG, Darmstadt, Germany and/or its licensors
+
+This is an internal project. It is NOT licensed for any use or redistribution of any kind by non-Software AG employees.
