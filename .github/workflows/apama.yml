@@ -24,6 +24,7 @@ jobs:
         include:
           - run-id: amd64_linux
             os: ubuntu-latest
+            release-docs: true
             
           #- run-id: amd64_win
           #  os: windows-latest
@@ -108,6 +109,7 @@ jobs:
           . $APAMA_HOME/bin/apama_env
           apamadoc __build/apamadoc eventdefinitions
       - name: Upload apamadoc to gh-pages
+        if: ${{matrix.release-docs}}
         #if: github.event_name == 'release'
         uses: JamesIves/github-pages-deploy-action@3.5.9
         with:
