@@ -47,8 +47,8 @@ Apama options
 	<runner classname="ApamaRunner" module="apama.runner"/>
 	
 	<!-- Custom test framework extensions, if needed -->
+	<pythonpath value="pysys-extensions" relative="true" />
 	<!--
-	<pythonpath value="../pysys-extensions" relative="true" />
 	<runner module="my.organization" classname="MyRunner" />
 	<maker  module="my.organization" classname="MyTestMaker" />
 	-->
