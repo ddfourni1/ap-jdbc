@@ -31,7 +31,8 @@ jobs:
     runs-on: ${{matrix.os}}
     
     steps:
-      # Install the Apama Community Edition. This contains 
+      # Install the full Apama Community Edition. This contains useful tools such as apamadoc which are not in the 
+      # smaller "core" package
       - run: echo "APAMA_INSTALLER_PATH=$HOME/apama-installer" >> $GITHUB_ENV
       - name: Get Apama installer from cache
         uses: actions/cache@v2
@@ -43,7 +44,7 @@ jobs:
         shell: bash
         run: |
           if [[ ! -f ${APAMA_INSTALLER_PATH}/apama.zip ]]; then
-            echo Downloading Apama community edition - not yet in the local cache
+            echo Downloading Apama - not yet in the local cache
             mkdir --parents ${APAMA_INSTALLER_PATH}
             wget --no-verbose -O ${APAMA_INSTALLER_PATH}/apama.zip https://downloads.apamacommunity.com/apama/${WORKFLOW_APAMA_VERSION}/apama_${WORKFLOW_APAMA_VERSION}_${{ matrix.run-id }}.zip
           fi
@@ -73,12 +74,17 @@ jobs:
 
       - uses: actions/checkout@v2
 
+      - name: Build project
+        shell: bash
+        run: |
+          . $APAMA_HOME/bin/apama_env
+          ant
+
       - name: PySys tests
         working-directory: test
         shell: bash
         id: pysys
         run: |
-          env
           . $APAMA_HOME/bin/apama_env
           # TODO: add ci option once we're on 10.7
           pysys.py run --outdir=`pwd`/__pysys_output/${{matrix.run-id}} --purge -Xeplcoverage

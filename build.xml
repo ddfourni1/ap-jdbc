@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project default="jars" basedir=".">
+	<presetdef name="javac">
+		<javac includeantruntime="false" />
+	</presetdef>
+
+	<property environment="env"/>
+	<property name="APAMA_HOME" location="${env.APAMA_HOME}"/>
+	<fail unless="env.APAMA_HOME" message="Please run the bin/apama_env script before attempting to build this sample."/>
+
+	<property name="apama-home-jar-dir" location="${env.APAMA_HOME}/lib"/>
+	<property name="common-lib-dir" location="${env.APAMA_HOME}/../common/lib/ext"/>
+	<property name="output-dir" location="${user.dir}/__build"/>
+	<property name="build-dir" location="${output-dir}/build_work"/>
+	<property name="3rdparty-dir" location="${output-dir}/lib/"/>
+	<tstamp/>
+
+	<path id="main-classpath">
+		<fileset dir="${apama-home-jar-dir}/">
+			<include name="connectivity-plugins-api.jar"/>
+			<include name="ap-util.jar"/>
+		</fileset>
+		<fileset dir="${common-lib-dir}/">
+		</fileset>
+	</path>
+
+	<!-- Setup the build directory, our .class files will go here -->
+	<target name="setup">
+		<mkdir dir="${output-dir}"/>
+		<mkdir dir="${build-dir}/classes"/>
+		<mkdir dir="${3rdparty-dir}"/>
+		<!--<copy todir="${3rdparty-dir}/">
+			 <fileset dir="${common-lib-dir}" includes="XXX-*.jar"/> 
+		</copy>
+		-->
+	</target>
+
+	<!-- Compiles .class files -->
+	<target name="compile" depends="setup">
+		<javac srcdir="./src/" destdir="${build-dir}/classes" debug="true">
+			<compilerarg value="-Xlint"/>
+			<compilerarg value="-Werror"/>
+			<classpath refid="main-classpath"/>
+		</javac>
+	</target>
+	
+	<!-- Make the jar -->
+	<target name="jars" depends="compile">
+		<jar jarfile="${output-dir}/connectivity-jdbc.jar">
+			<manifest>
+				<attribute name="Implementation-Title" value="JDBC Connectivity Plug-in"/>
+				<attribute name="Implementation-Version" value="v1.0 (${TODAY})"/> 
+				<attribute name="Class-Path" value=""/>
+			</manifest>
+			<fileset dir="${build-dir}/classes"/>
+		</jar>
+	</target>
+
+	<!-- Erase everything we built -->
+	<target name="clean">
+		<delete dir="${output-dir}"/>
+	</target>
+</project>

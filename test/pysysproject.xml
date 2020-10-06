@@ -28,7 +28,8 @@ Apama options
 	Binaries and configuration files can be specified relative to this directory 
 	to avoid having to hardcode locations inside each individual testcase. 
 	-->
-	<property name="APP_HOME" value="${env.PYSYS_APP_HOME}" default="${testRootDir}/.." pathMustExist="true"/>
+	<property name="appHome" value="${env.PYSYS_APP_HOME}" default="${testRootDir}/../__build" pathMustExist="true"/>
+	<property name="eventDefDir" value="${testRootDir}/../eventdefinitions" pathMustExist="true"/>
 
 	<!-- User-defined properties -->
 

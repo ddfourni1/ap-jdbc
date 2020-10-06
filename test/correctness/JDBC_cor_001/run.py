@@ -8,6 +8,7 @@ from apama.correlator import CorrelatorHelper
 class PySysTest(ApamaBaseTest):
 
 	def execute(self):
+		self.assertPathExists(self.project.appHome+'/connectivity-jdbc.jar', abortOnError=True)
 
 		correlator = CorrelatorHelper(self, name='correlator')
 		correlator.start(logfile='correlator.log')
@@ -20,3 +21,4 @@ class PySysTest(ApamaBaseTest):
 	def validate(self):
 		# look for log statements in the correlator log file
 		self.assertGrep('correlator.log', expr=' (ERROR|FATAL) .*', contains=False)
+		self.assertGrep('correlator.log', expr='xxxx') # deliberate failure
