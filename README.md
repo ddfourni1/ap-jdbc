@@ -3,6 +3,7 @@
 # ap-jdbc
 Apama 2020Oct Innovation Week project to replace ADBC with a JDBC connectivity plugin
 
+For API documentation see https://ben-spiller.github.io/ap-jdbc/
 
 Supported features:
 
