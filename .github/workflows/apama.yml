@@ -65,8 +65,8 @@ jobs:
           
           ${APAMA_INSTALLER_PATH}/install -readScript $HOME/apama-installer-script.txt
           
-          # Once installed, copy the most important env vars into the workflow env for later steps
-          . $APAMA_HOME/bin/apama_env
+          # Once installed, copy the most important env vars into the workflow's env for later steps
+          . $HOME/softwareag/bin/apama_env
           echo "APAMA_HOME=$APAMA_HOME" >> $GITHUB_ENV
           echo "$PATH" >> $GITHUB_PATH
           echo "$LD_LIBRARY_PATH" >> $GITHUB_PATH
