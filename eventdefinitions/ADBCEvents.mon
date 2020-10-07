@@ -203,6 +203,11 @@ event ResultSchema {
 event ResultEvent {
 	/** Unique id for this query. */
 	integer messageId;
+	/** unique Id for each row
+	* This is useful if you ned to rerun a query and dont 
+	* expect the underlying data to change.
+	*/
+	integer rowId;
 	/** The service id, Adapter channel name. */
 	//string serviceId;
 	/** The id of the schema. */
