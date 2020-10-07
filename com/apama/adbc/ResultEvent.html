@@ -61,6 +61,11 @@
 <br>Unique id for this query.</TD>
 </TR>
 <TR BGCOLOR="white" CLASS="TableRowColor">
+<TD ALIGN="right" VALIGN="top" WIDTH="1%"><FONT SIZE="-1"><CODE>&nbsp;integer</CODE></FONT></TD><TD><CODE><B><A HREF="ResultEvent.html#rowId">rowId</A></B></CODE>
+<br>
+<br>unique Id for each row This is useful if you ned to rerun a query and dont expect the underlying data to change.</TD>
+</TR>
+<TR BGCOLOR="white" CLASS="TableRowColor">
 <TD ALIGN="right" VALIGN="top" WIDTH="1%"><FONT SIZE="-1"><CODE>&nbsp;dictionary&lt;string,&nbsp;any&gt;</CODE></FONT></TD><TD><CODE><B><A HREF="ResultEvent.html#row">row</A></B></CODE>
 <br>
 <br>The result data.</TD>
@@ -79,6 +84,10 @@
 <H3>row</H3>
 <PRE>dictionary&lt;string,&nbsp;any&gt;&nbsp;<B>row</B>
 </PRE>The result data.<HR>
+<A NAME="rowId"></A>
+<H3>rowId</H3>
+<PRE>integer&nbsp;<B>rowId</B>
+</PRE>unique Id for each row This is useful if you ned to rerun a query and dont expect the underlying data to change.<HR>
 <HR>
 <TABLE BORDER="0" WIDTH="100%" CELLPADDING="1" CELLSPACING="0" SUMMARY="">
 <TR>
