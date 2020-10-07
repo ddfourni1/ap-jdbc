@@ -31,6 +31,16 @@ jobs:
             
     runs-on: ${{matrix.os}}
     
+    services:
+        mysql:
+            image: mysql:5.7
+            env:
+                MYSQL_ALLOW_EMPTY_PASSWORD: yes
+                MYSQL_DATABASE: innodb
+            ports:
+                - 3306
+            options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+
     steps:
       # Install the full Apama Community Edition. This contains useful tools such as apamadoc which are not in the 
       # smaller "core" package
