@@ -9,6 +9,17 @@ Supported features:
 
 	- TODO
 
+# Getting started
+
+Install Apama 10.5.3+ and open an Apama Command Prompt. Build by running:
+
+	ant
+
+Test by running:
+
+	cd test
+	pysys run -n0
+
 # License
 Copyright (c) 2020 Software AG, Darmstadt, Germany and/or its licensors
 

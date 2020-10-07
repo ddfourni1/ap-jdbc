@@ -423,8 +423,10 @@ public class JDBCTransport extends AbstractSimpleTransport {
 
 
 	public void shutdown() throws SQLException {
-		autoCommitThread.interrupt();
-		jdbcConn.commit();
-		jdbcConn.close();
+		if (autoCommitThread != null) autoCommitThread.interrupt();
+		if (jdbcConn != null) {
+			jdbcConn.commit();
+			jdbcConn.close();
+		}
 	}
 }

@@ -8,16 +8,13 @@ from pysys.constants import *
 class PySysTest(apamajdbc.testplugin.ApamaJDBCBaseTest):
 
 	def execute(self):
-		correlator = self.apamajdbc.startCorrelator('correlator', config=self.project.samplesDir+'/default_config.yaml', 
-			configPropertyOverrides=self.apamajdbc.getProperties(), 
-			# Because we're expecting a correlator startup failure:
-			expectedExitStatus='!=0', waitForServerUp=False, state=FOREGROUND, timeout=60)
+		correlator = self.apamajdbc.startCorrelator('correlator')
+		correlator.injectEPL([self.project.eventDefDir+'/ADBCEvents.mon'])
 		
+		correlator.flush()
 		#self.waitForGrep('correlator.log', expr="Loaded simple test monitor", 
 		#	process=correlator.process, errorExpr=[' (ERROR|FATAL) .*'])
 		
 	def validate(self):
 		# look for log statements in the correlator log file
-		#self.assertGrep('correlator.log', expr=' (ERROR|FATAL) .*', contains=False)
-		self.assertGrep('correlator.log', expr=' ERROR .*ClassNotFoundException: org.sqlite.JDBC')
-		self.assertGrep('correlator.log', expr='NullPointerException', contains=False)
+		self.assertGrep('correlator.log', expr=' (ERROR|FATAL) .*', contains=False)

@@ -30,6 +30,7 @@ Apama options
 	-->
 	<property name="appHome" value="${env.PYSYS_APP_HOME}" default="${testRootDir}/../__build" pathMustExist="true"/>
 	<property name="eventDefDir" value="${testRootDir}/../eventdefinitions" pathMustExist="true"/>
+	<property name="samplesDir" value="${testRootDir}/../samples" pathMustExist="true"/>
 
 	<!-- User-defined properties -->
 
