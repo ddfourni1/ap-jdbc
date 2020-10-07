@@ -1,0 +1,49 @@
+plugins:
+    JDBCTransport:
+        classpath: ${jdbc.connectivityPluginDir}/connectivity-jdbc.jar
+        class: com.apama.adbc.JDBCTransport
+    mapperCodec:
+        libraryName: MapperCodec
+        class: MapperCodec
+    diagnosticCodec:
+        libraryName: DiagnosticCodec
+        class: DiagnosticCodec
+
+startChains:
+    sqliteDB:
+        - apama.eventMap:
+            allowMissing: true
+#        - mapperCodec:
+        - JDBCTransport:
+            jdbcURL: ${jdbc.url}
+
+
+    storeEvents:
+        - apama.eventMap:
+        - mapperCodec:
+            "*":
+                towardsTransport:
+                    mapFrom:
+                        - payload.row: payload
+                        - payload.row._apama_type: metadata.sag.type
+                    defaultValue:
+                        - payload.messageId: -1
+                        - metadata.sag.type: "com.apama.adbc.Store"
+                        - payload.tableName: "StoredEvents"
+        - JDBCTransport:
+            jdbcURL: ${jdbc.url}
+
+    recoverEvents:
+        - apama.eventMap:
+            allowMissing: true
+        - mapperCodec:
+            "com.apama.adbc.ResultEvent":
+                towardsHost:
+                    mapFrom:
+                        - metadata.sag.type: payload.row._apama_type
+                        - payload: payload.row
+        - JDBCTransport:
+            jdbcURL: ${jdbc.url}
+            
+
+
