@@ -35,7 +35,7 @@ jobs:
         mysql:
             image: mysql:5.7
             env:
-                MYSQL_ALLOW_EMPTY_PASSWORD: yes
+                MYSQL_ROOT_PASSWORD: mysql
                 MYSQL_DATABASE: innodb
             ports:
                 - 3306

@@ -9,7 +9,9 @@ class PySysTest(apamajdbc.testplugin.ApamaJDBCBaseTest):
 
 	def execute(self):
 		correlator = self.apamajdbc.startCorrelator('correlator', config=self.project.samplesDir+'/default_config.yaml', 
-			configPropertyOverrides=self.apamajdbc.getProperties(), 
+			configPropertyOverrides={"jdbc.url":"localhost:000/invalidURL",
+									'jdbc.user':self.apamajdbc.getUsername(),
+									'jdbc.password':self.apamajdbc.getPassword()},
 			# Because we're expecting a correlator startup failure:
 			expectedExitStatus='!=0', waitForServerUp=False, state=FOREGROUND, timeout=60)
 		
@@ -19,5 +21,5 @@ class PySysTest(apamajdbc.testplugin.ApamaJDBCBaseTest):
 	def validate(self):
 		# look for log statements in the correlator log file
 		#self.assertGrep('correlator.log', expr=' (ERROR|FATAL) .*', contains=False)
-		self.assertGrep('correlator.log', expr=' ERROR .*ClassNotFoundException: org.sqlite.JDBC')
+		self.assertGrep('correlator.log', expr=' ERROR .*SQLException: No suitable driver')
 		self.assertGrep('correlator.log', expr='NullPointerException', contains=False)

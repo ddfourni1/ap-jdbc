@@ -1,0 +1,37 @@
+using com.apama.adbc.Statement;
+using com.apama.adbc.ResultSetRow;
+using com.apama.adbc.StatementDone;
+
+monitor Test {
+	action onload() {
+		Statement stmt := new Statement;
+
+		stmt.messageId := 1;
+		stmt.sql := "CREATE TABLE myTable(myColumn int);";
+		send stmt to "JDBC";
+
+		stmt.messageId := 2;
+		stmt.sql := "INSERT INTO myTable VALUES(42);";
+		send stmt to "JDBC";
+
+		stmt.messageId := 3;
+		stmt.sql := "INSERT INTO myTable VALUES(100);";
+		send stmt to "JDBC";
+
+		stmt.messageId := 4;
+		stmt.sql := "INSERT INTO myTable VALUES(-1);";
+		send stmt to "JDBC";
+
+		stmt.messageId := 5;
+		stmt.sql := "SELECT * FROM myTable WHERE myColumn > 0;";
+		send stmt to "JDBC";
+
+		on all ResultSetRow(messageId=5) as row {
+			log row.toString() at INFO;
+		}
+
+		on all StatementDone() as sd {
+			log sd.toString();
+		}
+	}
+}

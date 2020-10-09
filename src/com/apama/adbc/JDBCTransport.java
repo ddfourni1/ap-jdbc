@@ -1,52 +1,116 @@
 package com.apama.adbc;
 
 import java.util.HashMap;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.Collections;
+import java.util.Properties;
 import com.softwareag.connectivity.AbstractSimpleTransport;
 import com.softwareag.connectivity.Message;
 import com.softwareag.connectivity.PluginConstructorParameters.TransportConstructorParameters;
 import com.softwareag.connectivity.util.MapExtractor;
 import java.sql.*;
 import java.util.Map;
+
+import javax.naming.InitialContext;
+import javax.sql.DataSource;
+
 import java.util.ArrayList;
 import java.lang.Thread;
 import com.apama.util.concurrent.ApamaThread;
 
 public class JDBCTransport extends AbstractSimpleTransport {
-	String jdbcURL;
+	InitialContext jndi;
 	Connection jdbcConn;
-	ApamaThread autoCommitThread;
-	Integer batchSize = 500;
+	ApamaThread periodicCommitThread;
 
+	final int batchSize = 500;
+	final String jdbcURL;
+	final String jdbcUser;
+	final String jdbcPassword;
+	final String jndiName;
+
+	final Hashtable<?,?> jndiEnvironment;
+	final int maxRetries = 3;
+	
+	/** How often to automatically commit the connection. Set to 0 to disable. 
+	 * This is usually more performant than the "autoCommit" JDBC feature which does it after every statement. */
+	final float periodicCommitIntervalSecs; 
+
+	@SuppressWarnings({ "unchecked", "rawtypes" })
 	public JDBCTransport(org.slf4j.Logger logger, TransportConstructorParameters params) throws Exception 
 	{
 		super(logger, params);
 		MapExtractor config = new MapExtractor(params.getConfig(), "config");
+
+
+		// e.g. "org.sqlite.JDBC" Only needed for legacy older drivers. "Any JDBC 4.0 drivers that are found in your class path are automatically loaded"
+		String driverClass = config.getStringDisallowEmpty("driverClass", null);
+		if (driverClass != null)
+			Class.forName(driverClass);
+
+		jndiName = config.getStringDisallowEmpty("driverClass", null);
 		jdbcURL = config.getStringDisallowEmpty("jdbcURL");
+		if (!(jndiName == null ^ jdbcURL == null)) throw new IllegalArgumentException("Must set one of: jndiName, jdbcURL");
+
+		jdbcUser = config.getStringDisallowEmpty("jdbcUser", null);
+		jdbcPassword = config.getStringDisallowEmpty("jdbcPassword", "");
+
+		periodicCommitIntervalSecs = config.get("periodicCommitIntervalSecs", 5.0f);
+		
+		jndiEnvironment = new Hashtable(config.getMap("jndiEnvironment", true).getUnderlyingMap());
+
 		config.checkNoItemsRemaining();
 	}
 
+	private Connection createConnection() throws Exception
+	{
+		// TODO: automatic retry connection establishment (unless shutting down)
+		Connection returnConn;
+		Properties sqlprops = new Properties();
+		//username and password properties may be different for different databases
+		if (jdbcUser != null){
+			sqlprops.setProperty("user",jdbcUser);
+			sqlprops.setProperty("password", jdbcPassword);
+		}
+		if (jdbcURL != null) returnConn = DriverManager.getConnection(jdbcURL, sqlprops);
+		
+		// Preferred/modern approach is to get a DataSource instance from JNDI, which allows for connection pooling
+		
+		// TODO: check if we need to set thread context classloader (see Kafka plugin and also itrac, can't remember if we do this automatically or not)
+		else {
+			if (jndi == null)
+				jndi = new InitialContext(jndiEnvironment);
+			DataSource ds = (DataSource)jndi.lookup(jndiName);
+			if (jdbcUser != null) {
+				returnConn = ds.getConnection(jdbcUser, jdbcPassword);
+			}else{
+				returnConn = ds.getConnection();
+			}
+		}
+		return returnConn;
+	}
+	
 	public void start() throws Exception {
-		Class.forName("org.sqlite.JDBC");
-		jdbcConn = DriverManager.getConnection(jdbcURL);
+		jdbcConn = createConnection();
 		jdbcConn.setAutoCommit(false);
+		//make sure the connection is valid
+		boolean goodConn = jdbcConn.isValid(5); //will throw if this fails
 
-		autoCommitThread = new ApamaThread("JDBCTransport.autoCommitThread") {
-			@Override
-			public void call() {
-				try {
+		if (periodicCommitIntervalSecs >= 0)
+			periodicCommitThread = new ApamaThread("JDBCTransport.periodicCommitThread") {
+				@Override
+				public void call() throws InterruptedException {
 					while(true) {
-						Thread.sleep(5000);
+						Thread.sleep((int)(periodicCommitIntervalSecs*1000));
 						try {
 							jdbcConn.commit();
-						} catch (SQLException s) {
+						} catch (SQLException ex) { // TODO: think about error handling here
+							logger.error("Failed to commit: ", ex);
 						}
 					}
-				} catch (java.lang.InterruptedException e) {
 				}
-			}
-		}.startThread();
+			}.startThread();
 
 	}
 
@@ -59,24 +123,133 @@ public class JDBCTransport extends AbstractSimpleTransport {
 		// Unique id generic to all events from EPL, used in acknowledgements
 		long messageId = payload.get("messageId", -1L);
 
-		if (eventType.equals("StartQuery")){
-			executeQuery(payload, m, messageId);
-		} else if (eventType.equals("Command")) {
-			executeCommand(messageId, payload);
-		} else if (eventType.equals("Store")) {
+		if (eventType.equals("Store")) {
 			executeStore(messageId, payload);
+		} else if (eventType.equals("Statement")) {
+			executeStatement(payload, m, messageId, 0);
 		}
 	}
 
-	private void executeCommand(long messageId, MapExtractor payload) throws SQLException {
-		String operation = payload.getStringDisallowEmpty("operationString");
-		Statement stmt = jdbcConn.createStatement();
-		stmt.executeUpdate(operation);
-		stmt.close();
+	private void executeStatement(MapExtractor payload, Message m, long messageId, int currentRetryCount) throws Exception{
+		List<Message> msgList = new ArrayList<>();
+		try {
+			String sql_string = payload.getStringDisallowEmpty("sql"); 
+			List<Object> parameters = payload.getList("parameters", Object.class, false);
+			Statement stmt = null;
+			boolean resultsAvailable;
 
-		Message ack = new Message(Collections.singletonMap("messageId", messageId),
-		                          Collections.singletonMap(Message.HOST_MESSAGE_TYPE, "com.apama.adbc.CommandAck"));
-		hostSide.sendBatchTowardsHost(Collections.singletonList(ack));
+			if(parameters.isEmpty()) {
+				stmt = jdbcConn.createStatement();
+				resultsAvailable = stmt.execute(sql_string);
+			} else {
+				PreparedStatement stmt_ = getPreparedStatement(sql_string);
+				int i = 1;
+				for(Object param : parameters) {
+					stmt_.setObject(i, param);
+					i++;
+				}
+				resultsAvailable = stmt_.execute();
+
+				stmt = stmt_;
+			}
+
+			ResultSet rs = null;
+
+			if(resultsAvailable) {
+				rs = stmt.getResultSet();
+			}
+
+			int rowId = 0;
+			// For each ResultSet
+			while (rs != null) {
+				// For each row
+				ResultSetMetaData rsmd = rs.getMetaData();
+				while (rs.next()) {
+					Map <String, Object> rowMap = new HashMap<>();
+					// For each column
+					for(int i = 1; i <= rsmd.getColumnCount(); i++) {
+						rowMap.put(rsmd.getColumnName(i), rs.getObject(i));
+					}
+					Map<String, Object> resultPayload = new HashMap<>();
+					resultPayload.put("row", rowMap);
+					resultPayload.put("messageId", messageId);
+					resultPayload.put("rowId", rowId);
+					Message resultMsg = new Message(resultPayload);
+					resultMsg.putMetadataValue(Message.HOST_MESSAGE_TYPE, "com.apama.adbc.ResultSetRow");
+					msgList.add(resultMsg);
+
+					rowId = rowId + 1;
+				}
+
+				rs = stmt.getMoreResults() ? stmt.getResultSet() : null;
+			}
+			if (msgList.size() >0) {
+				hostSide.sendBatchTowardsHost(msgList);
+			}
+
+			// Respond with StatementDone
+			Map<String, Object> statementDonePayload = new HashMap<>();
+			statementDonePayload.put("messageId", messageId);
+			statementDonePayload.put("updateCount", stmt.getUpdateCount());
+			Message statementDoneMsg = new Message(statementDonePayload);
+			statementDoneMsg.putMetadataValue(Message.HOST_MESSAGE_TYPE, "com.apama.adbc.StatementDone");
+			hostSide.sendBatchTowardsHost(Collections.singletonList(statementDoneMsg));
+		} 
+		catch (SQLTransientException e){
+			//if this is a transient exception then we should retry it to see if it will just worked
+			
+			//if currentRetryCount is 0 coming into this catch then uts the first times its failed
+			if (currentRetryCount == 0){ 
+				currentRetryCount = maxRetries;
+			}
+			else{
+				currentRetryCount = currentRetryCount - 1;
+			}
+
+			String sql_string = payload.getStringDisallowEmpty("sql"); 
+			List<Object> parameters = payload.getList("parameters", Object.class, false);
+			// If currentRetryCount is 0 at this stage then all retries have been exhausted
+			if (currentRetryCount > 0){
+				logger.warn("Statement execution failed with a transient error and will now be retried - " + sql_string + " (" + parameters +")" );
+				//TODO should we wait before retrying?
+				executeStatement(payload, m, messageId, currentRetryCount);
+			}
+			else{
+				logger.warn("Statement execution failed nd has been retried a maximum number of times - " + sql_string + " (" + parameters +")");
+				// Throw exception and send statementDone/uery Done - back to use with the failure
+			}
+			
+		}
+		catch (SQLNonTransientException e){
+			//If its a non transient exception then it wont 'just work' unless the cause is corrected
+		}
+		catch (SQLException ex) {
+			/**
+			String message = getSQLExceptionMessage(ex, "Error executing query");
+			
+			//Send QueryDone with errormsg
+			Map<String, Object> queryDonePayload = new HashMap<>();
+			queryDonePayload.put("messageId", messageId);
+			queryDonePayload.put("errorMessage", message);
+			queryDonePayload.put("eventCount", msgList.size());
+			queryDonePayload.put("lastEventTime", lastEventTime);
+			Message queryDoneMsg = new Message(queryDonePayload);
+			queryDoneMsg.putMetadataValue(Message.HOST_MESSAGE_TYPE, "com.apama.adbc.QueryDone");
+
+			hostSide.sendBatchTowardsHost(Collections.singletonList(queryDoneMsg));
+
+			throw new Exception(message);//, db.isDisconnected(con));
+			*/
+		}
+		finally {
+			/**
+			// clean up
+			if (rs != null)	try	{rs.close();} catch(SQLException ex) {}
+			if (stmt != null) try {stmt.close();} catch(SQLException ex) {}
+			stmt = null;
+			rs = null;
+			*/
+		}
 	}
 
 	private void executeStore(long messageId, MapExtractor payload) throws SQLException {
@@ -123,166 +296,6 @@ public class JDBCTransport extends AbstractSimpleTransport {
 		}
 		stmtActual.execute();
 		stmtActual.close();
-	}
-
-	public void executeQuery(MapExtractor payload, Message m, long messageId) throws Exception{
-		PreparedStatement stmt = null;
-		ResultSet rs = null;
-		String errorPrefix = "Error executing query";
-		List<Message> msgList = new ArrayList<>();
-		long lastEventTime = 0;
-		Integer rowId = 0;
-		
-		try {
-			String queryString = payload.getStringDisallowEmpty("query"); 
-			logger.info("QUERY: " + queryString);
-			stmt = jdbcConn.prepareStatement(queryString);
-			logger.info("Executing query '" + queryString + "'");
-
-			// Execute the query
-			boolean resultsAvailable = true;
-			rs = stmt.executeQuery();
-
-			//AbstractRelationalDatabase.SchemaAttribute[] info = null;
-			ResultSetMetaData rsmd = null;
-			ParameterMetaData pmd = null;
-			int numColumns = 0;
-			int schemaId = 1;			
-			
-			while (resultsAvailable) {
-				if (rs != null) {
-					rsmd = rs.getMetaData();
-					numColumns = rsmd.getColumnCount();
-				}				
-			
-				sendSchemaEvent(stmt, rsmd, messageId);
-
-				// Fetch the data and send the events to the decoder
-				while (rs.next()) {
-					Map <String, Object> rowMap = new HashMap<>();
-
-					logger.info("After get RS.next" + queryString + "'");
-					// Add schema id to result event
-					//addSchemaId(schemaId);
-	
-					// Add column name:value pairs to the result event
-					int mode = ParameterMetaData.parameterModeUnknown;
-					String rsColumnName;
-					String columnName;
-					String columnValue;
-					int columnNameSuffix = 1;
-					for (int i=1; i<=numColumns; i++) { 
-						rsColumnName = rsmd.getColumnName(i);
-						//columnName = info[i-1].getName();
-						columnValue = rs.getString(i);		
-						logger.info("ROW: FieldName: " + rsColumnName + " Value: " + columnValue);				
-	
-						if (rsColumnName == null || rsColumnName.length() == 0) {
-							logger.warn("Column #" +  i + " name is NULL, skipping");
-							break;
-						}
-	
-						if (columnValue != null) {
-							rowMap.put(rsColumnName,  columnValue);
-						}
-						// Do nothing for NULL values, they are not added to the normalized event
-					}
-	
-					//accumulate a batch of events and send back to the host when the batch is full.
-					if (rowMap.size() > 0){
-						Map<String, Object> resultPayload = new HashMap<>();
-						resultPayload.put("row", rowMap);
-						resultPayload.put("messageId", messageId);
-						rowId = rowId + 1;
-						//logger.info("For query id " + messageId + " Send row Id " + rowId);
-						resultPayload.put("rowId", rowId);
-						Message resultMsg = new Message(resultPayload);
-						resultMsg.putMetadataValue(Message.HOST_MESSAGE_TYPE, "com.apama.adbc.ResultEvent");
-						msgList.add(resultMsg);
-						if (msgList.size() >= batchSize){
-							lastEventTime = System.currentTimeMillis();	
-							// Send the result event(s) to the Host
-							hostSide.sendBatchTowardsHost(msgList);
-							msgList.clear();
-						}
-					}
-				}
-								
-				// Get the next result set
-				resultsAvailable = stmt.getMoreResults();
-				if (resultsAvailable) {
-					rs = stmt.getResultSet();
-					schemaId++;
-				}
-			}
-			//Send any remaining resultEvents to the host.
-			if (msgList.size() >0){		
-				lastEventTime = System.currentTimeMillis();	
-				// Send the result event(s) to the Host
-				hostSide.sendBatchTowardsHost(msgList);
-			}
-			else{
-				//no results
-			}
-
-			//send ack even if no results - QueryDone
-			Map<String, Object> queryDonePayload = new HashMap<>();
-			queryDonePayload.put("messageId", messageId);
-			queryDonePayload.put("errorMessage", "");
-			queryDonePayload.put("eventCount", msgList.size());
-			queryDonePayload.put("lastEventTime", lastEventTime);
-			Message queryDoneMsg = new Message(queryDonePayload);
-			queryDoneMsg.putMetadataValue(Message.HOST_MESSAGE_TYPE, "com.apama.adbc.QueryDone");
-
-			hostSide.sendBatchTowardsHost(Collections.singletonList(queryDoneMsg));
-
-			
-		}
-		//TODO in future need to handle connection errors here (as well as other places) and retry to reopen the connection if its not open
-		/*catch (DataSourceException dex) {
-			//String message = errorPrefix + ", " + dex.getMessage();
-			//throw new DataSourceException(message, dex.isDisconnected());
-		}*/
-		catch (SQLException ex) {
-			String message = getSQLExceptionMessage(ex, errorPrefix);
-			
-			//Send QueryDone with errormsg
-			Map<String, Object> queryDonePayload = new HashMap<>();
-			queryDonePayload.put("messageId", messageId);
-			queryDonePayload.put("errorMessage", message);
-			queryDonePayload.put("eventCount", msgList.size());
-			queryDonePayload.put("lastEventTime", lastEventTime);
-			Message queryDoneMsg = new Message(queryDonePayload);
-			queryDoneMsg.putMetadataValue(Message.HOST_MESSAGE_TYPE, "com.apama.adbc.QueryDone");
-
-			hostSide.sendBatchTowardsHost(Collections.singletonList(queryDoneMsg));
-
-			throw new Exception(message);//, db.isDisconnected(con));
-		}
-		catch (Exception excp) {
-			String message = getExceptionMessage(excp, errorPrefix);
-			logger.debug(errorPrefix, excp);
-
-			//Send QueryDone with errormsg
-			Map<String, Object> queryDonePayload = new HashMap<>();
-			queryDonePayload.put("messageId", messageId);
-			queryDonePayload.put("errorMessage", message);
-			queryDonePayload.put("eventCount", msgList.size());
-			queryDonePayload.put("lastEventTime", lastEventTime);
-			Message queryDoneMsg = new Message(queryDonePayload);
-			queryDoneMsg.putMetadataValue(Message.HOST_MESSAGE_TYPE, "com.apama.adbc.QueryDone");
-
-			hostSide.sendBatchTowardsHost(Collections.singletonList(queryDoneMsg));
-
-			throw new Exception(message);//, db.isDisconnected(con));
-		}
-		finally {
-			// clean up
-			if (rs != null)	try	{rs.close();} catch(SQLException ex) {}
-			if (stmt != null) try {stmt.close();} catch(SQLException ex) {}
-			stmt = null;
-			rs = null;
-		}
 	}
 
 	public void sendSchemaEvent(Statement stmt, ResultSetMetaData rsmd, long messageId) throws SQLException
@@ -393,7 +406,7 @@ public class JDBCTransport extends AbstractSimpleTransport {
 		return error;
 	}
 
-	public static String getExceptionMessage(Exception ex, String errorPrefix)
+	public static String getExceptionMessage(Exception ex, String errorPrefix) // TODO: is this actually needed? Why not just log the stack trace for unexpected errors?
 	{
 		String error = errorPrefix + "; ";
 		try {
@@ -421,12 +434,51 @@ public class JDBCTransport extends AbstractSimpleTransport {
 		return error;
 	}
 
-
-	public void shutdown() throws SQLException {
-		if (autoCommitThread != null) autoCommitThread.interrupt();
-		if (jdbcConn != null) {
-			jdbcConn.commit();
-			jdbcConn.close();
+	/** Helper method that executes the specified lambda expression and logs a warning if it throws an exception. 
+	 * 
+	 * @param lambda e.g. <code>() -> foo.bar()</code>
+	 * @param logMessagePrefix e.g. "Could not do thingummy: ".
+	 */
+	boolean tryElseWarn(CanThrow lambda, String logMessagePrefix)
+	{
+		try
+		{
+			lambda.run();
+			return true;
+		} catch (Exception e)
+		{
+			logger.warn(logMessagePrefix, e);
+			return false;
 		}
 	}
+	public interface CanThrow { void run() throws Exception; }
+	
+	public void shutdown() 
+	{
+		if (periodicCommitThread != null) 
+			ApamaThread.cancelAndJoin(5000, true,  periodicCommitThread);
+		
+		if (jdbcConn != null) {
+			tryElseWarn(() -> jdbcConn.commit(), "Could not perform a final commit on the JDBC connection: ");
+			tryElseWarn(() -> jdbcConn.close(), "Could not close the JDBC connection: ");
+		}
+		if (jndi != null) 
+			tryElseWarn(() -> jndi.close(), "Could not close JNDI context: ");
+	}
+
+	/**
+	 * Creates a PreparedStatement on the current connection with the given SQL. Attempts to re-use previous PreparedStatements for the
+	 * same SQL to save compilation expense.
+	 */
+	private PreparedStatement getPreparedStatement(String sql) throws SQLException {
+		PreparedStatement ret = previousPreparedStatements.get(sql);
+		if(ret == null) {
+			ret = jdbcConn.prepareStatement(sql);
+			previousPreparedStatements.put(sql, ret);
+		}
+		return ret;
+	}
+
+	/** SQL string to statement map, supports getPreparedStatement's caching */
+	private Map<String, PreparedStatement> previousPreparedStatements = new HashMap<String, PreparedStatement>();
 }
